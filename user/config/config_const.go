@@ -1,0 +1,22 @@
+package config
+
+const (
+	EBPF_PROG_NONE uint32 = iota
+	EBPF_SYS_ENTER
+	EBPF_SYS_EXIT
+	EBPF_SYS_ALL
+	EBPF_UPROBE_ENTER
+)
+
+const MAX_COUNT = 1024
+const MAX_FILTER_COUNT = 6
+
+const (
+	TRACE_COMMON uint32 = iota
+	TRACE_ALL
+	// TRACE_FILE
+	// TRACE_PROCESS
+	// TRACE_NET
+	// TRACE_SIGNAL
+	// TRACE_STAT
+)

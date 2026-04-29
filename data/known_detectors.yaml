@@ -165,3 +165,145 @@ detectors:
       path_glob:
         - /proc/self/mem
         - /proc/*/mem
+
+  # ── observed-on-real-target (TB 2026-04-29) ──────────────────────────
+
+  - id: thread-stat-enumeration
+    severity: medium
+    category: proc
+    summary: target enumerated /proc/self/task/<tid>/stat (per-thread tracer/state scan)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/task/*/stat
+        - /proc/*/task/*/stat
+
+  - id: thread-comm-enumeration
+    severity: medium
+    category: proc
+    summary: target enumerated /proc/self/task/<tid>/comm (per-thread name scan, finds frida threads)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/task/*/comm
+        - /proc/*/task/*/comm
+
+  - id: thread-status-enumeration
+    severity: medium
+    category: proc
+    summary: target enumerated /proc/self/task/<tid>/status (per-thread state scan)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/task/*/status
+        - /proc/*/task/*/status
+
+  - id: proc-self-task-list
+    severity: low
+    category: proc
+    summary: target listed /proc/self/task (thread enumeration)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/task
+        - /proc/*/task
+
+  - id: proc-self-exe-check
+    severity: low
+    category: proc
+    summary: target read /proc/self/exe (verify own binary path)
+    match:
+      syscall: [readlinkat, openat]
+      path_glob:
+        - /proc/self/exe
+        - /proc/*/exe
+
+  - id: proc-thread-wchan
+    severity: medium
+    category: proc
+    summary: target read /proc/<pid>/wchan (thread wait-channel — find blocked-on-frida threads)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/wchan
+        - /proc/*/wchan
+        - /proc/self/task/*/wchan
+        - /proc/*/task/*/wchan
+
+  - id: proc-tty-drivers
+    severity: low
+    category: proc
+    summary: target read /proc/tty/drivers (qemu/emulator detection — looks for goldfish/ttySAC)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/tty/drivers
+
+  - id: cpufreq-time-in-state
+    severity: low
+    category: proc
+    summary: target read /sys/devices/system/cpu/cpufreq/.../time_in_state (anti-emulator — emu has no DVFS data)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /sys/devices/system/cpu/cpufreq/policy*/stats/time_in_state
+        - /sys/devices/system/cpu/cpu*/cpufreq/stats/time_in_state
+
+  - id: net-iface-mac
+    severity: medium
+    category: filesystem
+    summary: target read /sys/class/net/<iface>/address (MAC address fingerprint)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /sys/class/net/*/address
+
+  - id: kernel-version
+    severity: low
+    category: filesystem
+    summary: target read /proc/version (kernel build fingerprint, custom-kernel detection)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/version
+
+  - id: cpu-info
+    severity: low
+    category: filesystem
+    summary: target read /proc/cpuinfo (CPU model fingerprint — anti-emulator)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/cpuinfo
+
+  - id: system-build-prop
+    severity: medium
+    category: filesystem
+    summary: target read /system/build.prop (Android build fingerprint, root/custom-rom check)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /system/build.prop
+        - /system_root/build.prop
+        - /vendor/build.prop
+
+  - id: miku-cache-marker
+    severity: high
+    category: filesystem
+    summary: target probed for traceMiku marker file under its own cache (TB explicitly hunts this)
+    match:
+      syscall: [openat, faccessat, faccessat2, statx, newfstatat]
+      path_glob:
+        - "**/cache/.miku*"
+        - "**/cache/miku*"
+        - "**/files/.miku*"
+
+  - id: uc-debug-marker
+    severity: high
+    category: filesystem
+    summary: target probed for UC kernel debug marker (uc_debug — frida-friendly UC build)
+    match:
+      syscall: [openat, faccessat, faccessat2, statx, newfstatat]
+      path_glob:
+        - "**/cache/uc_debug*"
+        - "**/files/uc_debug*"

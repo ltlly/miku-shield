@@ -287,10 +287,18 @@ detectors:
         - /system_root/build.prop
         - /vendor/build.prop
 
-  - id: miku-cache-marker
-    severity: high
+  # NOTE on private-dir enumeration:
+  # TB walks its own /cache and /files directories with readdir() and
+  # openat(O_DIRECTORY|O_CLOEXEC) on every entry — the goal is to flag
+  # any unexpected file/dir, not to look for one specific marker name.
+  # Any tool that drops a file under the target's app-private cache is
+  # therefore detected, regardless of its filename.  These detectors
+  # exist so the analyzer surfaces the side effect ("TB just discovered
+  # your tool's residue") rather than because the marker name is special.
+  - id: miku-cache-residue
+    severity: medium
     category: filesystem
-    summary: target probed for traceMiku marker file under its own cache (TB explicitly hunts this)
+    summary: target enumerated its private cache and discovered a traceMiku residue file
     match:
       syscall: [openat, faccessat, faccessat2, statx, newfstatat]
       path_glob:
@@ -298,10 +306,10 @@ detectors:
         - "**/cache/miku*"
         - "**/files/.miku*"
 
-  - id: uc-debug-marker
-    severity: high
+  - id: uc-debug-residue
+    severity: medium
     category: filesystem
-    summary: target probed for UC kernel debug marker (uc_debug — frida-friendly UC build)
+    summary: target enumerated its private cache and discovered a UC-debug-build residue file
     match:
       syscall: [openat, faccessat, faccessat2, statx, newfstatat]
       path_glob:

@@ -7,7 +7,32 @@ import (
 	"io"
 	"regexp"
 	"strconv"
+	"strings"
 )
+
+// extractStackplzString unwraps stackplz's two-shape string encoding for
+// path/filename arguments:
+//
+//	"arg_value": "/path/to/foo"
+//	"arg_value": {"ptr": "...", "ptr_value": {"value": "/path/to/foo"}}
+//
+// (the second form is what stackplz emits when the argtype is a pointer to
+// a string, e.g. openat's *pathname).  Returns "" if neither shape matches.
+func extractStackplzString(raw json.RawMessage) string {
+	var direct string
+	if err := json.Unmarshal(raw, &direct); err == nil {
+		return direct
+	}
+	var nested struct {
+		PtrValue struct {
+			Value string `json:"value"`
+		} `json:"ptr_value"`
+	}
+	if err := json.Unmarshal(raw, &nested); err == nil {
+		return nested.PtrValue.Value
+	}
+	return ""
+}
 
 // stackplzEnvelope is just enough of the stackplz JSON event shape for
 // the analyzer to extract a path or sockaddr-port out of any single
@@ -67,11 +92,14 @@ func EventFromStackplzJSON(line []byte) (Event, bool, error) {
 	for _, a := range env.PointValue {
 		switch a.ArgType {
 		case "string":
-			// stackplz writes arg_value as a JSON string for
-			// path-typed arguments.
-			var s string
-			if err := json.Unmarshal(a.ArgValue, &s); err == nil && s != "" {
-				if ev.Path == "" || a.ArgName == "filename" || a.ArgName == "pathname" {
+			// stackplz emits string-typed args in two shapes:
+			//   "arg_value": "/path/to/foo"               (direct)
+			//   "arg_value": {"ptr": "...", "ptr_value":  (nested
+			//        {"value": "/path/to/foo"}}            for *path)
+			s := extractStackplzString(a.ArgValue)
+			if s != "" {
+				name := strings.TrimPrefix(a.ArgName, "*")
+				if ev.Path == "" || name == "filename" || name == "pathname" {
 					ev.Path = s
 				}
 			}

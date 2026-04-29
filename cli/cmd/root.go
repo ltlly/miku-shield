@@ -67,9 +67,18 @@ var gconfig = config.NewGlobalConfig()
 var mconfig = config.NewModuleConfig()
 
 var rootCmd = &cobra.Command{
-    Use:               "github.com/ltlly/miku-shield",
-    Short:             "打印堆栈信息，目前仅支持5.10+内核，出现崩溃请升级系统版本",
-    Long:              "基于eBPF的堆栈追踪工具，指定目标程序的uid、库文件路径和符号即可\n\t./stackplz --name com.sfx.ebpf --syscall openat -o tmp.log --debug",
+    Use:   "miku-shield",
+    Short: "anti-Frida detection observer + mitigation, forked from stackplz",
+    Long: `miku-shield is a fork of SeeFlowerX/stackplz (Apache-2.0).
+
+The default invocation (no subcommand) preserves stackplz's syscall /
+uprobe / hardware-breakpoint trace behaviour. miku-shield adds:
+
+  miku-shield identify  — live anti-Frida detection timeline (Phase 1)
+  miku-shield analyze   — offline analysis of stackplz JSON traces (Phase 1)
+  miku-shield mitigate  — LSM-based file/socket deny (Phase 2, planned)
+
+Run "miku-shield <subcommand> --help" for details.`,
     PersistentPreRunE: persistentPreRunEFunc,
     Run:               runFunc,
 }
@@ -83,6 +92,23 @@ var rootCmd = &cobra.Command{
 
 func persistentPreRunEFunc(command *cobra.Command, args []string) error {
     // 在执行子命令的时候 上级命令的 PersistentPreRun/PersistentPreRunE 会先执行
+
+    // miku-shield: skip the heavy stackplz pre-run for our own
+    // subcommands.  The default rootCmd pre-run does ParseArgFilter,
+    // hook-target validation, etc.  None of that applies to:
+    //   analyze   — pure offline JSON post-processing
+    //   identify  — spawns a separate stackplz process for the trace
+    //   mitigate  — runs its own self-contained BPF object
+    //
+    // Without this short-circuit the default flow Fatal-exits with
+    // "hook nothing, plz set -w/--point or -s/--syscall or --brk"
+    // before our subcommand RunE gets a chance to run.
+    if command != nil {
+        switch command.Name() {
+        case "analyze", "identify", "mitigate":
+            return nil
+        }
+    }
 
     var err error
 

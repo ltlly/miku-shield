@@ -1,0 +1,26 @@
+miku-shield
+Copyright 2026 ltlly <fwltlly@gmail.com>
+
+This product is a fork of stackplz, originally authored by SeeFlowerX
+and licensed under the Apache License, Version 2.0:
+
+  https://github.com/SeeFlowerX/stackplz
+  Copyright 2022 SeeFlowerX
+
+All files inherited from stackplz remain under the Apache-2.0 license.
+The complete license text is included in LICENSE.
+
+Modifications introduced by miku-shield:
+
+  - shield/                            (new)  anti-Frida detection layer
+  - cli/cmd/shield.go, mitigate.go    (new)  subcommands: analyze / identify / mitigate
+  - src/shield/lsm_block.bpf.c        (new)  LSM file_open + socket_connect mitigation
+  - src/shield/vmlinux.h              (new, generated)
+  - data/known_detectors.yaml         (new)  fingerprint library
+  - docs/ARCHITECTURE.md              (new)
+  - user/util/btf_fallback.go         (new)  /mnt/vendor/persist/vmlinux.btf fallback
+  - user/module/syscall.go            (modified) BTF fallback, optional fork probe
+  - user/module/perf_mmap.go          (modified) BTF fallback
+  - src/syscall.c                     (modified) -DMIKU_SHIELD_NO_FORK_TRACE guard
+  - cli/cmd/root.go                   (modified) re-branded Use/Long, subcommand routing
+  - go.mod                            (modified) module path → github.com/ltlly/miku-shield

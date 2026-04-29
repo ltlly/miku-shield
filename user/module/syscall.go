@@ -7,6 +7,7 @@ import (
     "fmt"
     "log"
     "math"
+    "os"
     "path/filepath"
     "github.com/ltlly/miku-shield/assets"
     "github.com/ltlly/miku-shield/user/argtype"
@@ -55,11 +56,19 @@ func (this *MSyscall) setupManager() error {
     }
     maps = append(maps, events_map)
 
-    fork_probe := &manager.Probe{
-        Section:      "raw_tracepoint/sched_process_fork",
-        EbpfFuncName: "tracepoint__sched__sched_process_fork",
+    // miku-shield: sched_process_fork tracking is compile-time gated.
+    // The bundled syscall.o is built with -DMIKU_SHIELD_NO_FORK_TRACE
+    // for the alioth 4.19 cip-backport kernel where loading that
+    // raw_tracepoint program returns -EOPNOTSUPP. Setting
+    // MIKU_SHIELD_FORK_TRACE=1 enables the probe again; this only makes
+    // sense on a build that does NOT have the C-side guard active.
+    if os.Getenv("MIKU_SHIELD_FORK_TRACE") == "1" {
+        fork_probe := &manager.Probe{
+            Section:      "raw_tracepoint/sched_process_fork",
+            EbpfFuncName: "tracepoint__sched__sched_process_fork",
+        }
+        probes = append(probes, fork_probe)
     }
-    probes = append(probes, fork_probe)
 
     // syscall hook 配置
     sys_enter_probe := &manager.Probe{
@@ -104,11 +113,24 @@ func (this *MSyscall) setupManagerOptions() {
             },
         }
     } else {
+        // miku-shield: when /sys/kernel/btf/vmlinux is missing (e.g.
+        // alioth 4.19 cip-backport before patch 479366b04408), fall
+        // back to /mnt/vendor/persist/vmlinux.btf so CO-RE relocations
+        // can resolve.  Falls through to the default behaviour when
+        // neither path is available.
+        var kernelTypes *btf.Spec
+        if !util.SysfsBTFExists() {
+            if spec, err := util.LoadFallbackKernelBTF(); err == nil && spec != nil {
+                kernelTypes = spec
+                this.logger.Printf("[btf-fallback] using /mnt/vendor/persist/vmlinux.btf")
+            }
+        }
         this.bpfManagerOptions = manager.Options{
             DefaultKProbeMaxActive: 512,
             VerifierOptions: ebpf.CollectionOptions{
                 Programs: ebpf.ProgramOptions{
-                    LogSize: 2097152,
+                    LogSize:     2097152,
+                    KernelTypes: kernelTypes,
                 },
             },
             RLimit: &unix.Rlimit{

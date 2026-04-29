@@ -13,8 +13,11 @@ import (
 	"github.com/ltlly/miku-shield/user/event"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/btf"
 	manager "github.com/ehids/ebpfmanager"
 	"golang.org/x/sys/unix"
+
+	"github.com/ltlly/miku-shield/user/util"
 )
 
 type PerfMMAP struct {
@@ -59,11 +62,19 @@ func (this *PerfMMAP) setupManager() error {
 }
 
 func (this *PerfMMAP) setupManagerOptions() {
+	// miku-shield: BTF fallback for kernels missing /sys/kernel/btf/vmlinux.
+	var kernelTypes *btf.Spec
+	if !util.SysfsBTFExists() {
+		if spec, err := util.LoadFallbackKernelBTF(); err == nil && spec != nil {
+			kernelTypes = spec
+		}
+	}
 	this.bpfManagerOptions = manager.Options{
 		DefaultKProbeMaxActive: 512,
 		VerifierOptions: ebpf.CollectionOptions{
 			Programs: ebpf.ProgramOptions{
-				LogSize: 2097152,
+				LogSize:     2097152,
+				KernelTypes: kernelTypes,
 			},
 		},
 		RLimit: &unix.Rlimit{

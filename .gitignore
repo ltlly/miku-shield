@@ -1,13 +1,17 @@
-# Ignore
-.vscode/
-
+# build outputs
 bin/
-libbpf/
-user/assets/
+*.o
+user/assets/*.o
+user/assets/*.btf
 
-*.log
-*.apk
+# generated bindata (regenerate with go-bindata)
 assets/ebpf_probe.go
 
-# Allow
-!user/assets/placeholder
+# go-related
+vendor/
+*.test
+
+# ide/editor
+.idea/
+.vscode/
+*.swp

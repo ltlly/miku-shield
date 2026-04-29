@@ -1,0 +1,167 @@
+version: 1
+
+# Detector definitions — pattern library for anti-Frida probes.
+#
+# Schema (per entry):
+#   id         unique stable string (lower-kebab)
+#   severity   high | medium | low
+#                high   = behaviour observed only in detection code
+#                medium = could be legitimate but is a strong signal
+#                low    = noise-prone, kept for completeness
+#   category   filesystem | network | proc | syscall
+#   summary    one-line human description (used in pretty output)
+#   match      implicit-AND across keys; lists inside a key are OR
+#     syscall      list of syscall names (any-of)
+#     path_exact   exact string (path_glob is preferred)
+#     path_glob    list of doublestar globs against an absolute path arg
+#     port         single uint or list of uints
+#     comm_match   list of regex on /proc/<pid>/comm contents
+#
+# When the analyzer sees a syscall event, every detector whose match
+# block evaluates true emits one Detection. Severity ordering for the
+# default --top output: high before medium before low.
+
+detectors:
+
+  # ────────────────── filesystem ────────────────────────────────────────
+
+  - id: frida-server-path
+    severity: high
+    category: filesystem
+    summary: target probed a Frida-server binary path
+    match:
+      syscall: [openat, faccessat, faccessat2, statx, newfstatat, readlinkat, access]
+      path_glob:
+        - /data/local/tmp/frida-server*
+        - /data/local/tmp/re.frida.server*
+        - /data/local/tmp/frida-cli*
+        - /data/local/tmp/frida-inject*
+        - /data/data/re.frida.server/**
+        - /system/bin/frida-server*
+
+  - id: miku-srv-path
+    severity: high
+    category: filesystem
+    summary: target probed traceMiku stealth-build server path
+    match:
+      syscall: [openat, faccessat, faccessat2, statx, newfstatat, access]
+      path_glob:
+        - /data/local/tmp/.miku-srv*
+        - /data/local/tmp/.miku-cli*
+
+  - id: gum-marker-path
+    severity: medium
+    category: filesystem
+    summary: target probed a frida-gum signature path
+    match:
+      syscall: [openat, faccessat, faccessat2, access, statx, newfstatat]
+      path_glob:
+        - /data/local/tmp/linjector-*
+        - /data/local/tmp/gum-js-loop*
+
+  # ────────────────── network ───────────────────────────────────────────
+
+  - id: frida-default-port
+    severity: high
+    category: network
+    summary: target connected to Frida default port (27042)
+    match:
+      syscall: [connect]
+      port: [27042]
+
+  - id: frida-secondary-port
+    severity: high
+    category: network
+    summary: target connected to Frida secondary port (27043)
+    match:
+      syscall: [connect]
+      port: [27043]
+
+  - id: tracemiku-stealth-port
+    severity: high
+    category: network
+    summary: target connected to traceMiku stealth port (6699)
+    match:
+      syscall: [connect]
+      port: [6699]
+
+  - id: frida-port-range-scan
+    severity: medium
+    category: network
+    summary: target connected to a port in the wider Frida-typical range
+    match:
+      syscall: [connect]
+      port: [27040, 27041, 27044, 27045, 27046, 27047, 27048, 27049, 27050]
+
+  # ────────────────── /proc inspection ──────────────────────────────────
+
+  - id: proc-self-maps-scan
+    severity: medium
+    category: proc
+    summary: target read /proc/self/maps (module-name / address-range scan)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/maps
+        - /proc/*/maps
+
+  - id: tracerpid-status
+    severity: medium
+    category: proc
+    summary: target read /proc/self/status (TracerPid check)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/status
+        - /proc/*/status
+
+  - id: thread-name-scan
+    severity: medium
+    category: proc
+    summary: target enumerated thread names (gum-js-loop / gmain detection)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/task/*/comm
+        - /proc/*/task/*/comm
+
+  - id: proc-net-tcp-scan
+    severity: medium
+    category: proc
+    summary: target read /proc/net/tcp (port enumeration)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/net/tcp
+        - /proc/net/tcp6
+        - /proc/*/net/tcp
+        - /proc/*/net/tcp6
+
+  - id: proc-self-cmdline
+    severity: low
+    category: proc
+    summary: target read /proc/self/cmdline (parent-process check)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/cmdline
+        - /proc/*/cmdline
+
+  - id: proc-self-syscall
+    severity: low
+    category: proc
+    summary: target read /proc/self/syscall (syscall fingerprinting)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/syscall
+
+  - id: proc-self-mem
+    severity: medium
+    category: proc
+    summary: target opened /proc/self/mem (self-memory scan)
+    match:
+      syscall: [openat]
+      path_glob:
+        - /proc/self/mem
+        - /proc/*/mem

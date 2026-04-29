@@ -8,6 +8,7 @@ require (
 	github.com/shuLhan/go-bindata v4.0.0+incompatible
 	github.com/spf13/cobra v1.6.0
 	golang.org/x/sys v0.8.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

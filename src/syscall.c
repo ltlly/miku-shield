@@ -8,6 +8,13 @@
 #include "common/context.h"
 #include "common/filtering.h"
 
+// miku-shield: on the alioth 4.19 cip-backport some kernels reject
+// this raw_tracepoint program with -EOPNOTSUPP, even though the
+// tracepoint itself is registered. Building with
+// -DMIKU_SHIELD_NO_FORK_TRACE strips the program from the object so
+// that the BPF loader sees only sys_enter / sys_exit.  All run-time
+// behaviour related to follow-fork is disabled in that build.
+#ifndef MIKU_SHIELD_NO_FORK_TRACE
 SEC("raw_tracepoint/sched_process_fork")
 int tracepoint__sched__sched_process_fork(struct bpf_raw_tracepoint_args *ctx)
 {
@@ -57,6 +64,7 @@ int tracepoint__sched__sched_process_fork(struct bpf_raw_tracepoint_args *ctx)
 
     return 0;
 }
+#endif // MIKU_SHIELD_NO_FORK_TRACE
 
 SEC("raw_tracepoint/sys_enter")
 int raw_syscalls_sys_enter(struct bpf_raw_tracepoint_args* ctx) {

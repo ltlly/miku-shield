@@ -124,15 +124,15 @@ ports). Add ad-hoc entries with `--extra-path` / `--extra-port`.
 This work was prototyped on the
 [alioth-kernel-research](https://github.com/ltlly/alioth-kernel-research)
 4.19-cip128 backport. The backport ships full mainline-grade
-fentry / fexit / fmod_ret JIT support, but four constraints surfaced
-while standing miku-shield up against it:
+fentry / fexit / fmod_ret JIT support, but several constraints
+surfaced while standing miku-shield up against it. The first three
+have been **fixed** by patches landed in the kernel-research project
+(running kernel `g52356ce750dc` after this work):
 
 1. **`/sys/kernel/btf/vmlinux` not always exposed on slot _a.**
-   `miku-shield` ships a fallback that loads
-   `/mnt/vendor/persist/vmlinux.btf` directly via
-   `btf.LoadSpec`. See `user/util/btf_fallback.go`. (verified working
-   on the device — the BPF loader gets past the BTF lookup that
-   upstream stackplz fails on.)
+   Fixed by kernel commit `43c03d52ba05` (BTF firmware loader). Also
+   shipping a userspace fallback in `user/util/btf_fallback.go` for
+   compatibility with older kernels.
 
 2. **`raw_tracepoint/sched_process_fork` rejected with `-EOPNOTSUPP`.**
    The probe is needed only for follow-fork syscall tracing, so it is
@@ -140,24 +140,37 @@ while standing miku-shield up against it:
    `MIKU_SHIELD_FORK_TRACE=1` env to re-enable in builds without the
    guard).
 
-3. **`raw_tracepoint/sys_enter` (stackplz's main syscall hook)
-   verifier rejection.** stackplz's existing `src/syscall.c` relies on
-   verifier behaviour that this 4.19 backport does not fully accept
-   (~23k lines of verifier log, generic `EOPNOTSUPP`). Two workarounds
-   exist today:
-   - capture JSONL on a 5.10+ device, then feed it to `miku-shield analyze`.
-   - re-flash the alioth-kernel-research project's newer slot _a
-     (`g43c03d52ba05` and beyond) which has additional verifier fixes.
+3. **`lsm/file_open` attach-id validation rejected the correct BTF id**
+   with `attach_btf_id N points to wrong type name bpf_lsm_file_open`.
+   Root cause: 4.19 lacks `tools/bpf/resolve_btfids/`, so the
+   `BTF_SET(bpf_lsm_hooks)` filled in by `BTF_ID()` macros at
+   link time stays empty. Fixed by kernel commits
+   `eea30f87e4e7` (bpf_lsm.c — fall back to a `bpf_lsm_` prefix check
+   on the resolved function name) and `52356ce750dc` (bpf_trace.c —
+   same fallback for `bpf_d_path` allowlist). LSM programs now load
+   and verify cleanly.
 
-4. **`lsm/file_open` attach-id validation rejects the correct BTF id.**
-   `cat /proc/kallsyms | grep bpf_lsm_file_open` shows the symbol is
-   present, the BTF id resolves to a `BTF_KIND_FUNC` entry of name
-   `bpf_lsm_file_open`, but the verifier fails with
-   `points to wrong type name bpf_lsm_file_open`. Reproduced with a
-   minimal `bpftool prog loadall` test, so it is a kernel-side issue
-   and not a `cilium/ebpf` problem. Phase 2 mitigation therefore loads
-   cleanly on stock 5.10+ Android kernels but cannot be exercised on
-   this specific 4.19 build today.
+The remaining open constraints — both of which require a proper
+kernel JIT or stackplz-side rewrite, not a miku-shield change:
+
+4. **arm64 BPF JIT V1 backport explicitly does not implement
+   `BPF_TRAMP_MODIFY_RETURN`** (see `arch/arm64/net/bpf_jit_comp.c`
+   line 1235: `/* fmod_ret unsupported in this V1 backport */`).
+   LSM block-style programs require fmod_ret semantics so that a
+   non-zero BPF return value replaces the original function's
+   return value (that's how `-EACCES` propagates). Loading and
+   verification succeed; `link.AttachLSM` is what returns
+   `-ENOTSUPP`. Once the alioth-kernel-research project lands its
+   arm64 fmod_ret JIT (mainline 6.0 backport), this disappears
+   automatically — no miku-shield change needed.
+
+5. **stackplz's `raw_syscalls_sys_enter` BPF program hits a
+   verifier rejection** (~23k log lines, generic `EOPNOTSUPP`).
+   This is a stackplz-side issue: the program relies on
+   verifier behaviour that the 4.19 backport does not fully accept.
+   It is independent of all the kernel work above. Workaround
+   today is to capture JSONL on a 5.10+ device and feed it into
+   `miku-shield analyze` (which works fine on any kernel).
 
 The miku-shield code itself is BTF/CO-RE clean — the BPF objects are
 compiled against `vmlinux.h` generated from the device's

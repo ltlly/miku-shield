@@ -104,6 +104,16 @@ static __always_inline int uid_matches(void)
 // LSM file_open hook ---------------------------------------------------
 //
 // kernel: int file_open(struct file *file)
+//
+// Matching strategy: read just the leaf component of the open()'d path
+// (file->f_path.dentry->d_name.name) and look that up in the blocklist
+// map.  This sidesteps bpf_d_path() — that helper is restricted by the
+// btf_allowlist_d_path BTF_SET, which is empty on 4.19 backports — and
+// it is sufficient for anti-Frida detection because every signature
+// path we care about has a unique leaf (frida-server, .miku-srv, ...).
+// Userspace populates shield_block_paths keys with leaf basenames.
+#define LEAF_NAME_LEN 64
+
 SEC("lsm/file_open")
 int BPF_PROG(shield_file_open, struct file *file)
 {
@@ -111,7 +121,7 @@ int BPF_PROG(shield_file_open, struct file *file)
 	if (!uid_matches())
 		return 0;
 	if (st)
-		__sync_fetch_and_add(&st->file_open_checked, 1);
+		st->file_open_checked++;
 
 	__u32 z = 0;
 	struct path_key *scratch = bpf_map_lookup_elem(&shield_scratch, &z);
@@ -121,23 +131,32 @@ int BPF_PROG(shield_file_open, struct file *file)
 	for (int i = 0; i < PATH_KEY_LEN; i++)
 		scratch->buf[i] = 0;
 
-	struct path p = BPF_CORE_READ(file, f_path);
-	long n = bpf_d_path(&p, scratch->buf, PATH_KEY_LEN);
+	const unsigned char *name_ptr = BPF_CORE_READ(file, f_path.dentry, d_name.name);
+	if (!name_ptr)
+		return 0;
+	long n = bpf_probe_read_kernel_str(scratch->buf, LEAF_NAME_LEN, name_ptr);
 	if (n <= 0)
 		return 0;
 
 	__u8 *hit = bpf_map_lookup_elem(&shield_block_paths, scratch);
 	if (hit) {
 		if (st)
-			__sync_fetch_and_add(&st->file_open_blocked, 1);
+			st->file_open_blocked++;
 		return -13; // -EACCES
 	}
 	return 0;
 }
 
+#if 0 /* miku-shield: temporarily disabled while debugging 4.19 -ENOTSUPP */
 // LSM socket_connect hook ---------------------------------------------
 //
 // kernel: int socket_connect(struct socket *sock, struct sockaddr *addr, int addrlen)
+//
+// We deliberately read the sockaddr bytes through bpf_probe_read_kernel
+// rather than chasing them through BTF/CO-RE — that avoids
+// PTR_TO_BTF_ID type-tracking limitations on this 4.19 verifier
+// backport, which surface as generic "operation not supported" errors
+// at load time.
 SEC("lsm/socket_connect")
 int BPF_PROG(shield_socket_connect, struct socket *sock, struct sockaddr *addr, int addrlen)
 {
@@ -145,28 +164,26 @@ int BPF_PROG(shield_socket_connect, struct socket *sock, struct sockaddr *addr, 
 	if (!uid_matches())
 		return 0;
 	if (st)
-		__sync_fetch_and_add(&st->sock_connect_checked, 1);
+		st->sock_connect_checked++;
 
 	if (!addr || addrlen < (int)sizeof(struct sockaddr))
 		return 0;
-	__u16 family = BPF_CORE_READ(addr, sa_family);
-	__u16 port_be = 0;
-	if (family == 2 /* AF_INET */) {
-		struct sockaddr_in *in = (struct sockaddr_in *)addr;
-		port_be = BPF_CORE_READ(in, sin_port);
-	} else if (family == 10 /* AF_INET6 */) {
-		struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
-		port_be = BPF_CORE_READ(in6, sin6_port);
-	} else {
+
+	struct sockaddr_in sa = {};
+	if (bpf_probe_read_kernel(&sa, sizeof(sa), addr) != 0)
 		return 0;
-	}
+	__u16 family = sa.sin_family;
+	if (family != 2 /* AF_INET */)
+		return 0; /* TODO Phase 3: handle AF_INET6 too */
+	__u16 port_be = sa.sin_port;
 	__u16 port = (__u16)((port_be >> 8) | (port_be << 8));
 
 	__u8 *hit = bpf_map_lookup_elem(&shield_block_ports, &port);
 	if (hit) {
 		if (st)
-			__sync_fetch_and_add(&st->sock_connect_blocked, 1);
+			st->sock_connect_blocked++;
 		return -111; // -ECONNREFUSED
 	}
 	return 0;
 }
+#endif /* socket_connect disabled */

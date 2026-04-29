@@ -39,10 +39,12 @@ detectors:
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+	// Mitigation matches on the leaf component (basename), not the
+	// full path — see BlocklistFromDB doc.
 	paths, ports := BlocklistFromDB(db)
-	wantPath := "/data/local/tmp/.miku-srv"
-	if len(paths) != 1 || paths[0] != wantPath {
-		t.Errorf("paths got %v want [%q]", paths, wantPath)
+	wantLeaf := ".miku-srv"
+	if len(paths) != 1 || paths[0] != wantLeaf {
+		t.Errorf("paths got %v want [%q]", paths, wantLeaf)
 	}
 	if len(ports) != 1 || ports[0] != 27042 {
 		t.Errorf("ports got %v want [27042]", ports)

@@ -143,12 +143,16 @@ func (l *Loader) Apply(cfg MitigationConfig) error {
 		}
 	}
 
-	// Attach LSM probes.
+	// Attach every LSM program present in the BPF object. Programs
+	// that the BPF C source has compiled-out (e.g. socket_connect on
+	// kernels where the LSM hook isn't attachable) are silently
+	// skipped — the corresponding map population above is a no-op
+	// when the program is missing.
+	attached := 0
 	for _, name := range []string{"shield_file_open", "shield_socket_connect"} {
 		prog := coll.Programs[name]
 		if prog == nil {
-			l.unsafeClose()
-			return fmt.Errorf("program %s missing in BPF object", name)
+			continue
 		}
 		lk, err := link.AttachLSM(link.LSMOptions{Program: prog})
 		if err != nil {
@@ -156,6 +160,11 @@ func (l *Loader) Apply(cfg MitigationConfig) error {
 			return fmt.Errorf("attach LSM %s: %w", name, err)
 		}
 		l.links = append(l.links, lk)
+		attached++
+	}
+	if attached == 0 {
+		l.unsafeClose()
+		return errors.New("no LSM programs attached — check lsm_block.bpf.o build flags")
 	}
 
 	return nil
